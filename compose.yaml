@@ -1,0 +1,71 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: travel_poc
+      MARIADB_USER: travel_poc
+      MARIADB_PASSWORD: local_demo_only
+      MARIADB_ROOT_PASSWORD: local_root_demo_only
+    volumes:
+      - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+  ai:
+    build: ./ai-service
+    environment:
+      AI_MODE: ${AI_MODE:-mock}
+      INTERNAL_AI_TOKEN: ${INTERNAL_AI_TOKEN:?Set INTERNAL_AI_TOKEN in .env}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+      AWS_REGION: ${AWS_REGION:-af-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    ports:
+      - "127.0.0.1:8001:8001"
+  laravel:
+    build:
+      context: .
+      dockerfile: laravel-docker/Dockerfile
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: mysql
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_DATABASE: travel_poc
+      DB_USERNAME: travel_poc
+      DB_PASSWORD: local_demo_only
+      CACHE_STORE: redis
+      REDIS_CLIENT: phpredis
+      REDIS_HOST: redis
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+      AI_SERVICE_URL: http://ai:8001
+      INTERNAL_AI_TOKEN: ${INTERNAL_AI_TOKEN:?Set INTERNAL_AI_TOKEN in .env}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ai:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8000:8000"
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://laravel:8000
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      - laravel
+
+volumes:
+  dbdata:
